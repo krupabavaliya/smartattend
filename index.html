@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>SmartAttend MVP - Polished Edition</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <script src="https://unpkg.com/html5-qrcode"></script>
+  <style>
+    body { font-family: sans-serif; text-align: center; background: #0f172a; color: white; padding: 20px; }
+    .container { max-width: 650px; margin: 0 auto; background: #1e293b; padding: 25px; border-radius: 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.3); }
+    #qrcode { display: inline-block; padding: 15px; background: white; border-radius: 12px; margin-top: 15px; }
+    .timer { font-size: 1.2rem; margin-top: 10px; color: #38bdf8; font-weight: bold; }
+    .section { margin-top: 25px; padding-top: 20px; border-top: 1px solid #334155; }
+    #reader { width: 100%; max-width: 350px; margin: 0 auto; border-radius: 8px; overflow: hidden; }
+    #result { margin-top: 15px; padding: 12px; border-radius: 8px; font-weight: bold; display: none; }
+    .log-box { background: #0f172a; padding: 15px; border-radius: 8px; margin-top: 15px; text-align: left; max-height: 150px; overflow-y: auto; font-family: monospace; font-size: 0.9rem; color: #38bdf8; }
+    .btn { background: #38bdf8; color: #0f172a; border: none; padding: 10px 20px; font-weight: bold; border-radius: 6px; cursor: pointer; margin-top: 10px; }
+    .btn:hover { background: #0ea5e9; }
+    select { padding: 8px; border-radius: 6px; background: #0f172a; color: white; border: 1px solid #334155; margin-bottom: 10px; }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <h2>SmartAttend: BCA-CORE</h2>
+    <p style="color: #94a3b8;">Anti-Proxy Dynamic QR Attendance System</p>
+    
+    <!-- Faculty Projector View -->
+    <div>
+      <h3>Faculty Projector (Active Code)</h3>
+      <div id="qrcode"></div>
+      <div class="timer" id="status">Generating token...</div>
+    </div>
+
+    <!-- Student Scanner View -->
+    <div class="section">
+      <h3>Student Scanner View</h3>
+      <div>
+        <label style="color: #94a3b8; font-size: 0.9rem;">Select Student Profile: </label>
+        <select id="studentSelect">
+          <option value="BCA001 (Krupa)">Krupa (BCA001)</option>
+          <option value="BCA002 (Divya)">Divya (BCA002)</option>
+          <option value="BCA003 (Chandni)">Chandni (BCA003)</option>
+        </select>
+      </div>
+      <div id="reader"></div>
+      <div id="result"></div>
+    </div>
+
+    <!-- Live Logs & Compliance -->
+    <div class="section">
+      <h3>Attendance Analytics & Logs</h3>
+      <div class="log-box" id="logList">No attendance recorded yet.</div>
+      <button class="btn" onclick="exportCSV()">📥 Download CSV Report</button>
+    </div>
+  </div>
+
+  <script>
+    let qr;
+    let currentcurrentToken = "";
+    let sessionActive = true;
+    let sessionSecondsLeft = 300; 
+    let attendanceRecords = JSON.parse(localStorage.getItem('smartattend_logs')) || [];
+
+    window.onload = function() {
+      const qrContainer = document.getElementById("qrcode");
+      qr = new QRCode(qrContainer, { width: 200, height: 200 });
+      refreshQR();
+      updateLogsUI();
+    };
+
+    function generateToken() {
+      return "TOKEN_" + Math.random().toString(36).substring(2, 8) + "_" + Date.now();
+    }
+
+    function refreshQR() {
+      if (!sessionActive) return;
+      currentcurrentToken = generateToken();
+      qr.clear();
+      qr.makeCode(currentcurrentToken);
+    }
+
+    function updateTimers() {
+      if (sessionSecondsLeft <= 0) {
+        sessionActive = false;
+        document.getElementById("qrcode").style.display = "none";
+        document.getElementById("status").innerText = "5-Minute Window Closed!";
+        document.getElementById("status").style.color = "#ef4444";
+        return;
+      }
+      sessionSecondsLeft--;
+      document.getElementById("status").innerText = `Session locks in: ${sessionSecondsLeft}s`;
+    }
+
+    setInterval(refreshQR, 15000);
+    setInterval(updateTimers, 1000);
+
+    function onScanSuccess(decodedText, decodedResult) {
+      const resDiv = document.getElementById("result");
+      resDiv.style.display = "block";
+
+      if (!sessionActive) {
+        resDiv.style.background = "#fee2e2";
+        resDiv.style.color = "#991b1b";
+        resDiv.innerText = "Scan Rejected: Session has expired!";
+        return;
+      }
+
+      if (decodedText !== currentcurrentToken) {
+        resDiv.style.background = "#fee2e2";
+        resDiv.style.color = "#991b1b";
+        resDiv.innerText = "Proxy Detected! Old or invalid QR code scanned.";
+        return;
+      }
+
+      const selectedStudent = document.getElementById("studentSelect").value;
+      const alreadyScanned = attendanceRecords.some(r => r.student === selectedStudent);
+
+      if (alreadyScanned) {
+        resDiv.style.background = "#fef08a";
+        resDiv.style.color = "#854d0e";
+        resDiv.innerText = `${selectedStudent} is already marked present!`;
+        return;
+      }
+
+      // Record success with timestamp
+      const record = { student: selectedStudent, time: new Date().toLocaleTimeString() };
+      attendanceRecords.push(record);
+      localStorage.setItem('smartattend_logs', JSON.stringify(attendanceRecords));
+
+      // Calculate simulated compliance (assuming 20 total sessions conducted so far)
+      const totalLectures = 20;
+      const attendedCount = attendanceRecords.filter(r => r.student === selectedStudent).length;
+      const percentage = Math.round((attendedCount / totalLectures) * 100);
+      
+      let complianceMsg = `Compliance: ${percentage}%. Status: Compliant.`;
+      if (percentage < 75) {
+        const needed = Math.ceil((0.75 * totalLectures - attendedCount) / 0.25);
+        complianceMsg = `Compliance: ${percentage}%. Warning: Attend next ${needed} classes to reach 75%!`;
+      }
+
+      resDiv.style.background = "#dcfce7";
+      resDiv.style.color = "#166534";
+      resDiv.innerText = `Success! Marked present for ${selectedStudent}. ${complianceMsg}`;
+      
+      updateLogsUI();
+    }
+
+    const html5QrcodeScanner = new Html5QrcodeScanner("reader", { fps: 10, qrbox: { width: 200, height: 200 } }, false);
+    html5QrcodeScanner.render(onScanSuccess, (err) => {});
+
+    function updateLogsUI() {
+      const logList = document.getElementById("logList");
+      if (attendanceRecords.length === 0) {
+        logList.innerHTML = "No attendance recorded yet.";
+        return;
+      }
+      logList.innerHTML = attendanceRecords.map(item => `<div>✅ ${item.student} — ${item.time}</div>`).join('');
+    }
+
+    function exportCSV() {
+      if (attendanceRecords.length === 0) {
+        alert("No attendance records to export!");
+        return;
+      }
+      let csvContent = "data:text/csv;charset=utf-8,Student Name,Timestamp\n" 
+        + attendanceRecords.map(e => `${e.student},${e.time}`).join("\n");
+      
+      const encodedUri = encodeURI(csvContent);
+      const link = document.createElement("a");
+      link.setAttribute("href", encodedUri);
+      link.setAttribute("download", "smartattend_report.csv");
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+  </script>
+
+</body>
+</html>
